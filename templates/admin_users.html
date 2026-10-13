@@ -1,0 +1,69 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="page-heading">
+    <h1>Пользователи</h1>
+    <p>Создавайте учётные записи, назначайте роли и отключайте доступ.</p>
+</div>
+<div class="content-split">
+    <section class="panel create-panel">
+        <div class="panel-header"><div><h2>Создать пользователя</h2></div></div>
+        <form method="post" class="form-stack">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label class="field"><span>Имя</span><input name="name" maxlength="120" required></label>
+            <label class="field"><span>Почта</span><input name="email" type="email" maxlength="254" required></label>
+            <label class="field"><span>Начальный пароль</span><input name="password" type="password" minlength="12" autocomplete="new-password" required></label>
+            <p class="field-hint">Не менее 12 символов, заглавные и строчные буквы, цифра. Сотрудник сменит его после первого входа и 2FA.</p>
+            <label class="field"><span>Роль</span><select name="role" required>
+                {% for value, label in roles.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+            </select></label>
+            <button class="button button-primary button-wide" type="submit">Создать</button>
+        </form>
+        {% if google_enabled %}
+        <div class="panel-header"><div><h2>Пригласить через Google</h2></div></div>
+        <form method="post" action="{{ url_for('admin_invite_google') }}" class="form-stack">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label class="field"><span>Имя</span><input name="name" maxlength="120" required></label>
+            <label class="field"><span>Почта Google</span><input name="email" type="email" maxlength="254" required></label>
+            <label class="field"><span>Роль</span><select name="role" required>
+                {% for value, label in roles.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+            </select></label>
+            <p class="field-hint">Приглашение действует 7 дней. Сообщите человеку адрес приложения: письма не отправляются. Он войдёт кнопкой «Войти через Google» с указанной почтой и настроит 2FA.</p>
+            <button class="button button-secondary button-wide" type="submit">Создать приглашение</button>
+        </form>
+        {% endif %}
+    </section>
+    <section class="panel cases-panel">
+        <div class="panel-header"><div><span class="panel-kicker">{{ users|length }} УЧЁТНЫХ ЗАПИСЕЙ</span><h2>Доступ</h2></div></div>
+        <div class="admin-users-list">
+            {% for user in users %}
+            <div class="admin-user-row">
+                <div><strong>{{ user.name }}</strong><small>{{ user.email }}</small>
+                    {% if user.google_invite_expires_at and not user.google_sub %}
+                    <small>{{ 'Приглашение истекло' if user.id in expired_invite_ids else 'Ожидает Google' }} · до {{ format_datetime(user.google_invite_expires_at) }}</small>
+                    {% elif user.google_sub %}<small>Google подключён</small>{% endif %}
+                    {% if user.must_change_password %}<small>Ожидает смену начального пароля</small>{% endif %}
+                </div>
+                {% if user.id == g.user.id %}
+                    <span class="role-chip">{{ role_label(user.role) }} · Вы</span>
+                {% else %}
+                <form action="{{ url_for('admin_update_user', user_id=user.id) }}" method="post" class="admin-user-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <select name="role" aria-label="Роль пользователя {{ user.name }}">
+                        {% for value, label in roles.items() %}<option value="{{ value }}" {% if user.role == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+                    </select>
+                    <label><input type="checkbox" name="is_active" value="1" {% if user.is_active %}checked{% endif %}> Активен</label>
+                    <button class="button button-secondary button-small" type="submit">Сохранить</button>
+                </form>
+                {% if google_enabled and user.is_active and user.google_invite_expires_at and not user.google_sub and not user.has_local_password %}
+                <form action="{{ url_for('admin_renew_google_invite', user_id=user.id) }}" method="post">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="button button-secondary button-small" type="submit">Продлить на 7 дней</button>
+                </form>
+                {% endif %}
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+</div>
+{% endblock %}

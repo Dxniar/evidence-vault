@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% block auth_content %}
+<div class="auth-heading">
+    <h2>Вход в систему</h2>
+    <p>Войдите в свою учётную запись.</p>
+</div>
+<form method="post" class="form-stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label class="field">
+        <span>Электронная почта</span>
+        <input type="email" name="email" placeholder="expert@example.com" autocomplete="email" required autofocus>
+    </label>
+    <label class="field">
+        <span>Пароль</span>
+        <div class="password-field">
+            <input type="password" name="password" id="password" placeholder="Введите пароль" autocomplete="current-password" required>
+            <button type="button" class="password-toggle" data-password-toggle="password" aria-label="Показать пароль" aria-pressed="false">Показать</button>
+        </div>
+    </label>
+    <button class="button button-primary button-wide" type="submit">Продолжить</button>
+</form>
+{% if google_enabled %}
+<form method="post" action="{{ url_for('google_login') }}" class="form-stack google-login-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="button button-secondary button-wide" type="submit">Войти через Google</button>
+</form>
+{% endif %}
+<p class="auth-switch">Доступ выдаёт администратор.</p>
+<div class="auth-footnote">После входа потребуется код из приложения-аутентификатора.</div>
+{% endblock %}

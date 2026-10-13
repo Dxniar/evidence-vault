@@ -1,0 +1,16 @@
+.env
+.env.*
+venv/
+.venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.git/
+instance/
+*.db
+*.sqlite3
+АНАЛИЗ_ПРОЕКТА.md
+.playwright-cli/
+output/
+tmp/
+labs/

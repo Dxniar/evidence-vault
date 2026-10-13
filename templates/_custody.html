@@ -1,0 +1,40 @@
+{% set transfer = transfers_by_evidence.get(evidence.id) %}
+<div class="custody-section">
+    <p class="file-description">Ответственный: <strong>{{ evidence.custodian.name if evidence.custodian else 'Не указан' }}</strong></p>
+    {% if transfer %}
+    <div class="custody-pending">
+        <p class="file-description">Ожидается принятие: {{ transfer.from_user.name }} → {{ transfer.to_user.name }} · {{ format_datetime(transfer.requested_at) }}</p>
+        <p class="file-description">Основание: {{ transfer.reason }}</p>
+        <div class="file-actions">
+            {% if g.user.id == transfer.to_user_id and case.status == 'active' %}
+            <form action="{{ url_for('custody.accept_transfer', transfer_id=transfer.id) }}" method="post">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="button button-primary button-small" type="submit">Принять ответственность</button>
+            </form>
+            {% endif %}
+            {% if g.user.id == transfer.from_user_id or can_manage %}
+            <form action="{{ url_for('custody.cancel_transfer', transfer_id=transfer.id) }}" method="post">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="button button-secondary button-small" type="submit">Отменить передачу</button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+    {% elif evidence.custodian_id == g.user.id and g.user.role in ['admin', 'investigator'] and case.status == 'active' %}
+    <details class="custody-form">
+        <summary>Передать ответственность</summary>
+        <form action="{{ url_for('custody.request_transfer', evidence_id=evidence.id) }}" method="post" class="form-stack">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label class="field"><span>Получатель</span>
+                <select name="to_user_id" required>
+                    <option value="">Выберите сотрудника</option>
+                    {% for recipient in eligible_custodians if recipient.id != g.user.id %}<option value="{{ recipient.id }}">{{ recipient.name }} · {{ recipient.email }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="field"><span>Основание передачи</span><textarea name="reason" rows="2" minlength="3" maxlength="1000" required></textarea></label>
+            <p class="field-hint">Ответственный изменится, когда получатель подтвердит принятие.</p>
+            <button class="button button-secondary button-small" type="submit">Запросить передачу</button>
+        </form>
+    </details>
+    {% endif %}
+</div>

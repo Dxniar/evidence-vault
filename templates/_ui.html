@@ -1,0 +1,23 @@
+{% macro icon(name) -%}
+<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    {% if name == 'overview' %}<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>
+    {% elif name == 'folder' %}<path d="M3 7V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>
+    {% elif name == 'list' %}<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>
+    {% elif name == 'users' %}<circle cx="9" cy="8" r="3"/><path d="M3 21v-2a6 6 0 0 1 12 0v2M16 5a3 3 0 0 1 0 6M21 21v-2a6 6 0 0 0-4-5.65"/>
+    {% elif name == 'user' %}<circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/>
+    {% elif name == 'logout' %}<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M13 17l5-5-5-5M8 12h13"/>
+    {% elif name == 'menu' %}<path d="M4 6h16M4 12h16M4 18h16"/>
+    {% elif name == 'close' %}<path d="m6 6 12 12M6 18 18 6"/>
+    {% elif name == 'sun' %}<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2m-3-7 1.5-1.5M3.5 20.5 5 19m14 0 1.5 1.5M3.5 3.5 5 5"/>
+    {% elif name == 'moon' %}<path d="M21 13a9 9 0 0 1-10-10 9 9 0 1 0 10 10Z"/>
+    {% endif %}
+</svg>
+{%- endmacro %}
+{% macro brand() -%}
+<span class="brand-mark" aria-hidden="true">EV</span><span><strong>Evidence</strong><em>Vault</em></span>
+{%- endmacro %}
+{% macro theme_toggle() -%}
+<button class="theme-toggle" data-theme-toggle type="button" aria-label="Включить тёмную тему" aria-pressed="false" title="Включить тёмную тему">
+    <span class="theme-light-icon">{{ icon('moon') }}</span><span class="theme-dark-icon">{{ icon('sun') }}</span><span>Тема</span>
+</button>
+{%- endmacro %}

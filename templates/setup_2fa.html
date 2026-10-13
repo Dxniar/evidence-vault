@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+{% block auth_content %}
+<div class="auth-heading compact">
+    <h2>Настройте двухфакторный вход</h2>
+    <p>Отсканируйте QR-код в приложении-аутентификаторе.</p>
+</div>
+<div class="setup-layout">
+    <div class="qr-frame"><img src="data:image/png;base64,{{ qr_data }}" alt="QR-код для подключения двухфакторной аутентификации"></div>
+    <div class="setup-steps">
+        <div><b>1</b><span>Откройте Google Authenticator или Microsoft Authenticator.</span></div>
+        <div><b>2</b><span>Добавьте аккаунт с помощью QR-кода.</span></div>
+        <div><b>3</b><span>Введите появившийся шестизначный код.</span></div>
+    </div>
+</div>
+<details class="secret-box">
+    <summary>Не получается отсканировать?</summary>
+    <p>Введите секретный ключ вручную:</p>
+    <code>{{ secret }}</code>
+</details>
+<form method="post" class="form-stack otp-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label class="field">
+        <span>Код подтверждения</span>
+        <input class="otp-input" type="text" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="000000" autocomplete="one-time-code" required autofocus>
+    </label>
+    <button class="button button-primary button-wide" type="submit">Подключить двухфакторный вход</button>
+</form>
+{% endblock %}

@@ -1,0 +1,11 @@
+<details class="source-fields">
+    <summary>Источник и получение материала</summary>
+    <div class="form-stack">
+        <label class="field"><span>Источник</span><input name="source_label" maxlength="500" placeholder="Носитель, организация или место получения"></label>
+        <label class="field"><span>Протокол или основание получения</span><input name="source_reference" maxlength="200" placeholder="Номер и дата документа"></label>
+        <label class="field"><span>Способ получения</span><input name="acquisition_method" maxlength="300" placeholder="Способ извлечения и использованный инструмент"></label>
+        <label class="field"><span>Дата и время получения · {{ display_timezone }}</span><input name="acquired_at" type="datetime-local"></label>
+        <label class="field"><span>SHA-256 при получении</span><input name="source_sha256" maxlength="64" pattern="[0-9a-fA-F]{64}" placeholder="Если контрольная сумма известна"></label>
+        <p class="field-hint">Контрольная сумма применяется к одному файлу. При несовпадении файл не будет принят. Для нескольких файлов загружайте материалы с отдельными сведениями об источнике.</p>
+    </div>
+</details>

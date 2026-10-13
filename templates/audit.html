@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="page-heading heading-with-action">
+    <div>
+        <h1>Журнал событий</h1>
+        <p>Хронологическая запись входов и операций с материалами.</p>
+    </div>
+    <div class="filter-pills">
+        <a class="{% if selected_severity == 'all' %}active{% endif %}" href="{{ url_for('audit', q=q) }}">Все</a>
+        <a class="{% if selected_severity == 'success' %}active{% endif %}" href="{{ url_for('audit', severity='success', q=q) }}">Успешные</a>
+        <a class="{% if selected_severity == 'warning' %}active{% endif %}" href="{{ url_for('audit', severity='warning', q=q) }}">Внимание</a>
+        <a class="{% if selected_severity == 'danger' %}active{% endif %}" href="{{ url_for('audit', severity='danger', q=q) }}">Опасные</a>
+    </div>
+</div>
+
+<form action="{{ url_for('audit') }}" method="get" class="search-form" role="search">
+    {% if selected_severity != 'all' %}<input type="hidden" name="severity" value="{{ selected_severity }}">{% endif %}
+    <label class="field"><span>Поиск в журнале</span><input type="search" name="q" value="{{ q }}" maxlength="200" placeholder="Событие, описание или сотрудник"></label>
+    <button class="button button-secondary" type="submit">Найти</button>
+    {% if q %}<a class="button button-ghost" href="{{ url_for('audit', severity=selected_severity) }}">Сбросить</a>{% endif %}
+</form>
+
+<section class="panel audit-panel">
+    <div class="table-wrap">
+        <table class="audit-table">
+            <thead><tr><th>Состояние</th><th>Событие</th><th>Пользователь</th><th>IP-адрес</th><th>Дата и время</th></tr></thead>
+            <tbody>
+            {% for log in logs %}
+                <tr>
+                    <td><span class="event-level level-{{ log['severity'] }}"><i></i>{{ {'info':'Инфо','success':'Успешно','warning':'Внимание','danger':'Опасность'}[log['severity']] }}</span></td>
+                    <td><strong>{{ log['description'] }}</strong><small>{{ log['event_type'] }}</small></td>
+                    <td>{{ log['name'] or 'Система' }}<small>{{ log['email'] or '—' }}</small></td>
+                    <td><code>{{ log['ip_address'] }}</code></td>
+                    <td>{{ format_datetime(log['created_at']) }}</td>
+                </tr>
+            {% else %}
+                <tr><td colspan="5"><div class="empty-state small"><h3>События не найдены</h3><p>Измените фильтр или выполните действие в системе.</p></div></td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% if page > 1 or has_next %}
+<nav class="pagination" aria-label="Страницы журнала">
+    {% if page > 1 %}<a class="button button-secondary button-small" href="{{ url_for('audit', page=page - 1, severity=selected_severity, q=q) }}">← Назад</a>{% endif %}
+    <span>Страница {{ page }}</span>
+    {% if has_next %}<a class="button button-secondary button-small" href="{{ url_for('audit', page=page + 1, severity=selected_severity, q=q) }}">Далее →</a>{% endif %}
+</nav>
+{% endif %}
+{% endblock %}

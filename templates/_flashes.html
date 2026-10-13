@@ -1,0 +1,13 @@
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        <div class="flash-stack" aria-live="polite">
+            {% for category, message in messages %}
+                <div class="flash flash-{{ category }}">
+                    <span class="flash-symbol">{% if category == 'success' %}✓{% elif category == 'danger' %}!{% else %}i{% endif %}</span>
+                    <span>{{ message }}</span>
+                    <button type="button" class="flash-close" aria-label="Закрыть">×</button>
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+{% endwith %}

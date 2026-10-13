@@ -1,0 +1,87 @@
+{% extends 'base.html' %}
+{% block content %}
+{% set statuses = {'verified':'Целостность подтверждена', 'modified':'Файл изменён', 'missing':'Файл отсутствует', 'not_checked':'Требуется проверка'} %}
+{% set transfer_statuses = {'pending':'Ожидает подтверждения', 'accepted':'Принята', 'cancelled':'Отменена'} %}
+<div class="page-heading heading-with-action">
+    <div>
+        <a class="back-link" href="{{ url_for('case_detail', case_id=case.id) }}">← К расследованию</a>
+        <h1>Служебная сводка</h1>
+        <p>{{ case.case_number }} · {{ case.title }}</p>
+    </div>
+    <div class="report-actions">
+        <a class="button button-secondary" href="{{ url_for('reports.case_manifest', case_id=case.id) }}">Перечень JSON</a>
+        <button class="button button-primary" type="button" data-print>Печать</button>
+    </div>
+</div>
+
+<section class="panel report-panel">
+    <div class="panel-header"><h2>Расследование</h2></div>
+    <div class="report-body">
+        <dl class="detail-grid">
+            <div><dt>Внутренний номер</dt><dd>{{ case.case_number }}</dd></div>
+            <div><dt>Номер дела / основания</dt><dd>{{ case.reference_number or 'Не указано' }}</dd></div>
+            <div><dt>Название</dt><dd>{{ case.title }}</dd></div>
+            <div><dt>Состояние</dt><dd>{{ 'Открыто' if case.status == 'active' else 'Закрыто' }}</dd></div>
+            <div><dt>Ответственный за дело</dt><dd>{{ case.owner.name }}</dd></div>
+            <div><dt>Дата создания</dt><dd>{{ format_datetime(case.created_at) }}</dd></div>
+            <div><dt>Сформировано · {{ display_timezone }}</dt><dd>{{ format_datetime(generated_at) }}</dd></div>
+            <div><dt>Составитель</dt><dd>{{ manifest.generated_by.name }}</dd></div>
+        </dl>
+        {% if case.description %}<p class="report-text">{{ case.description }}</p>{% endif %}
+        <p class="report-note">Сводка отражает записи системы на момент формирования. Она не является подписанным процессуальным документом. Файлы при формировании не проверяются: указано состояние последней проверки.</p>
+    </div>
+</section>
+
+<section class="panel report-panel">
+    <div class="panel-header"><h2>Материалы · {{ manifest.evidence|length }}</h2></div>
+    {% for item in manifest.evidence %}
+    <article class="report-material">
+        <h3>{{ loop.index }}. {{ item.original_name }}</h3>
+        <dl class="detail-grid">
+            <div><dt>Идентификатор</dt><dd>{{ item.id }}</dd></div>
+            <div><dt>Размер</dt><dd>{{ format_size(item.size_bytes) }} ({{ item.size_bytes }} байт)</dd></div>
+            <div><dt>Загружено</dt><dd>{{ format_datetime(item.uploaded_at) }}</dd></div>
+            <div><dt>Ответственный за материал</dt><dd>{{ item.custody.current_custodian.name or 'Не указано' }}</dd></div>
+            <div><dt>Источник</dt><dd>{{ item.source_details.source_label or 'Не указано' }}</dd></div>
+            <div><dt>Протокол / основание получения</dt><dd>{{ item.source_details.source_reference or 'Не указано' }}</dd></div>
+            <div><dt>Способ получения</dt><dd>{{ item.source_details.acquisition_method or 'Не указано' }}</dd></div>
+            <div><dt>Дата получения</dt><dd>{{ format_datetime(item.source_details.acquired_at) if item.source_details.acquired_at else 'Не указано' }}</dd></div>
+            <div><dt>Последнее состояние</dt><dd>{{ statuses[item.integrity.status] }}</dd></div>
+            <div><dt>Последняя проверка</dt><dd>{{ format_datetime(item.integrity.checked_at) if item.integrity.checked_at else 'Не проводилась' }}</dd></div>
+        </dl>
+        {% if item.description %}<p class="report-text">{{ item.description }}</p>{% endif %}
+        <div class="report-hash"><span>SHA-256 сохранённого файла</span><code>{{ item.sha256 }}</code></div>
+        <div class="report-hash"><span>SHA-256 при получении</span><code>{{ item.source_details.source_sha256 or 'Не указано' }}</code></div>
+        <p class="report-note">Имя для сверки с перечнем JSON: <code>{{ item.export_name }}</code></p>
+        {% if item.custody.transfers %}
+        <h4>История передачи ответственности</h4>
+        <div class="table-wrap">
+            <table class="audit-table report-table">
+                <thead><tr><th>Участники</th><th>Основание</th><th>Состояние</th><th>Дата</th></tr></thead>
+                <tbody>{% for transfer in item.custody.transfers %}
+                    <tr>
+                        <td>{{ transfer['from'].name or 'Не указано' }} → {{ transfer.to.name or 'Не указано' }}<small>Инициатор: {{ transfer.requested_by.name or 'Не указано' }}</small></td>
+                        <td>{{ transfer.reason }}</td>
+                        <td>{{ transfer_statuses[transfer.status] }}</td>
+                        <td>{{ format_datetime(transfer.requested_at) }}{% if transfer.decided_at %}<small>Решение: {{ format_datetime(transfer.decided_at) }}</small>{% endif %}</td>
+                    </tr>
+                {% endfor %}</tbody>
+            </table>
+        </div>
+        {% else %}<p class="report-note">Передачи ответственности не зарегистрированы.</p>{% endif %}
+    </article>
+    {% else %}<div class="empty-state"><h3>Материалы не добавлены</h3></div>{% endfor %}
+</section>
+
+<section class="panel report-panel">
+    <div class="panel-header"><div><h2>История действий по делу</h2>{% if events_truncated %}<p>Показаны последние 500 событий. Полная история доступна в журнале.</p>{% endif %}</div></div>
+    <div class="table-wrap">
+        <table class="audit-table report-table">
+            <thead><tr><th>Дата и время</th><th>Сотрудник</th><th>Действие</th></tr></thead>
+            <tbody>{% for event in recent_events %}
+                <tr><td>{{ format_datetime(event.created_at) }}</td><td>{{ event.name }}</td><td>{{ event.description }}<small>{{ event.event_type }}</small></td></tr>
+            {% else %}<tr><td colspan="3">События по делу ещё не зарегистрированы.</td></tr>{% endfor %}</tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

@@ -1,0 +1,154 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="case-hero">
+    <div>
+        <a class="back-link" href="{{ url_for('cases') }}">← Все расследования</a>
+        <div class="case-title-line"><span class="case-id">{{ case['case_number'] }}</span><span class="badge badge-{{ case['priority'] }}">{{ {'low':'Низкий','normal':'Обычный','high':'Высокий'}[case['priority']] }} приоритет</span></div>
+        <h1>{{ case['title'] }}</h1>
+        <p>{{ case['description'] or 'Описание расследования не добавлено.' }}</p>
+        <div class="case-summary">
+            <span class="badge badge-normal">{{ 'Закрыто' if case.status == 'closed' else 'В работе' }}</span>
+            {% if case.reference_number %}<span>{{ case.reference_number }}</span>{% endif %}
+            <span>Ответственный за дело: {{ case.owner.name }}</span>
+        </div>
+        {% if case.status == 'closed' %}<p class="case-closed-note">Закрыто {{ format_datetime(case.closed_at) }} · {{ case.closure_reason }}</p>{% endif %}
+        <div class="report-actions">
+            <a class="button button-secondary button-small" href="{{ url_for('reports.case_report', case_id=case.id) }}">Сводка по делу</a>
+            <a class="button button-ghost button-small" href="{{ url_for('reports.case_manifest', case_id=case.id) }}">Перечень файлов</a>
+        </div>
+    </div>
+</div>
+
+<div class="content-split evidence-layout{% if not can_edit or case.status != 'active' %} single-column{% endif %}">
+    {% if can_edit and case.status == 'active' %}<section class="panel upload-panel">
+        <div class="panel-header"><div><h2>Загрузить файлы</h2></div></div>
+        <form action="{{ url_for('upload_evidence', case_id=case['id']) }}" method="post" enctype="multipart/form-data" class="form-stack">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label class="drop-zone" data-file-picker>
+                <input type="file" name="files" multiple required>
+                <strong data-file-label>Выберите файлы</strong>
+                <small>До 20 файлов · до 16 МБ каждый · до 64 МБ за раз</small>
+            </label>
+            {% include '_source_fields.html' %}
+            <label class="field">
+                <span>Описание доказательства</span>
+                <textarea name="description" rows="3" placeholder="Источник файла и его значение для расследования"></textarea>
+            </label>
+            <button class="button button-primary button-wide" type="submit">Загрузить файлы</button>
+        </form>
+    </section>{% endif %}
+
+    <section class="panel evidence-panel">
+        <div class="panel-header">
+            <div><span class="panel-kicker">{{ evidence_rows|length }} {{ plural(evidence_rows|length, 'файл', 'файла', 'файлов') }}</span><h2>Цифровые доказательства</h2></div>
+        </div>
+        {% if evidence_rows %}
+            <div class="evidence-list">
+            {% for evidence in evidence_rows %}
+                <article class="evidence-card" data-evidence-id="{{ evidence.id }}">
+                    <div class="file-topline">
+                        <div class="file-icon">{{ evidence['original_name'].rsplit('.', 1)[-1][:4]|upper }}</div>
+                        <div class="file-name"><strong>{{ evidence['original_name'] }}</strong><small>{{ format_size(evidence['size_bytes']) }} · {{ format_datetime(evidence['created_at']) }}</small></div>
+                        {% set integrity = evidence.current_integrity_status %}
+                        <span class="integrity-status status-{{ integrity or 'pending' }}">
+                            {% if integrity == 'verified' %}✓ Целостность подтверждена{% elif integrity == 'modified' %}! Файл изменён{% elif integrity == 'missing' %}! Файл отсутствует{% else %}Хеш рассчитан · требуется проверка{% endif %}
+                        </span>
+                    </div>
+                    {% if evidence.integrity_checked_at %}<p class="file-description">Последняя проверка: {{ format_datetime(evidence.integrity_checked_at) }}</p>{% endif %}
+                    {% if evidence['description'] %}<p class="file-description">{{ evidence['description'] }}</p>{% endif %}
+                    <details class="provenance-details">
+                        <summary>Сведения об источнике</summary>
+                        <dl class="detail-grid">
+                            <div><dt>Источник</dt><dd>{{ evidence.source_label or 'Не указан' }}</dd></div>
+                            <div><dt>Документ</dt><dd>{{ evidence.source_reference or 'Не указан' }}</dd></div>
+                            <div><dt>Способ получения</dt><dd>{{ evidence.acquisition_method or 'Не указан' }}</dd></div>
+                            <div><dt>Получено · {{ display_timezone }}</dt><dd>{{ format_datetime(evidence.acquired_at) }}</dd></div>
+                        </dl>
+                        {% if evidence.source_sha256 %}<p class="report-hash">SHA-256 при получении: {{ evidence.source_sha256 }}</p>{% endif %}
+                    </details>
+                    <div class="hash-row">
+                        <div><span>SHA-256</span><code>{{ evidence['sha256'] }}</code></div>
+                        <button type="button" class="copy-button" data-copy="{{ evidence['sha256'] }}">Копировать</button>
+                    </div>
+                    <div class="file-actions">
+                        {% if not can_edit %}
+                        <form action="{{ url_for('check_evidence', evidence_id=evidence['id']) }}" method="post">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button class="button button-secondary button-small" type="submit">Проверить SHA-256</button>
+                        </form>
+                        {% else %}<form action="{{ url_for('verify_evidence', evidence_id=evidence['id']) }}" method="post">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button class="button button-secondary button-small" type="submit">Проверить целостность</button>
+                        </form>{% endif %}
+                        <a class="button button-ghost button-small" href="{{ url_for('download_evidence', evidence_id=evidence['id']) }}">Скачать</a>
+                    </div>
+                    {% include '_custody.html' %}
+                </article>
+            {% endfor %}
+            </div>
+        {% else %}
+            <div class="empty-state">
+                <h3>Доказательств пока нет</h3>
+                <p>{% if g.user.role == 'auditor' %}Файлы ещё не добавлены.{% else %}Загрузите файл, чтобы сохранить его контрольную сумму SHA-256.{% endif %}</p>
+            </div>
+        {% endif %}
+    </section>
+</div>
+<div class="case-management-grid">
+    <section class="panel">
+        <div class="panel-header"><h2>Участники дела</h2></div>
+        <div class="management-body">
+            <div class="member-row"><div><strong>{{ case.owner.name }}</strong><small>Ответственный за дело</small></div></div>
+            {% for member in members %}<div class="member-row"><div><strong>{{ member.user.name }}</strong><small>{{ 'Добавление материалов' if member.permission == 'editor' else 'Просмотр и проверка' }}{% if not member.user.is_active %} · Доступ отключён{% endif %}</small></div></div>{% endfor %}
+            {% if can_manage and case.status == 'active' %}
+            <details class="management-details">
+                <summary>Изменить состав участников</summary>
+                <form action="{{ url_for('casework.update_member', case_id=case.id) }}" method="post" class="form-stack">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <label class="field"><span>Сотрудник</span><select name="user_id" required><option value="">Выберите сотрудника</option>{% for member in eligible_members %}<option value="{{ member.id }}">{{ member.name }} · {{ member.email }}</option>{% endfor %}{% for member in members if member.user not in eligible_members %}<option value="{{ member.user.id }}">{{ member.user.name }} · {{ role_label(member.user.role) }}</option>{% endfor %}</select></label>
+                    <label class="field"><span>Разрешение</span><select name="permission"><option value="viewer">Просмотр, скачивание и проверка</option><option value="editor">Добавление материалов и проверка</option><option value="remove">Отозвать доступ</option></select></label>
+                    <label class="field"><span>Основание</span><input name="reason" minlength="3" maxlength="1000" required></label>
+                    <button type="submit" class="button button-secondary">Сохранить доступ</button>
+                </form>
+            </details>
+            {% endif %}
+        </div>
+    </section>
+    {% if can_manage %}<section class="panel">
+        <div class="panel-header"><h2>Управление делом</h2></div>
+        <div class="management-body">
+            {% if case.status == 'active' %}
+            <details class="management-details">
+                <summary>Редактировать сведения</summary>
+                <form action="{{ url_for('casework.update_case', case_id=case.id) }}" method="post" class="form-stack">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <label class="field"><span>Название</span><input name="title" value="{{ case.title }}" minlength="3" maxlength="120" required></label>
+                    <label class="field"><span>Регистрационный номер</span><input name="reference_number" value="{{ case.reference_number }}" maxlength="80"></label>
+                    <label class="field"><span>Описание</span><textarea name="description" maxlength="5000">{{ case.description }}</textarea></label>
+                    <label class="field"><span>Приоритет</span><select name="priority">{% for value, label in [('low','Низкий'),('normal','Обычный'),('high','Высокий')] %}<option value="{{ value }}" {% if case.priority == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+                    <label class="field"><span>Основание изменения</span><input name="reason" minlength="3" maxlength="1000" required></label>
+                    <button type="submit" class="button button-secondary">Обновить сведения</button>
+                </form>
+            </details>
+            {% endif %}
+            <details class="management-details">
+                <summary>{{ 'Закрыть дело' if case.status == 'active' else 'Возобновить дело' }}</summary>
+                <form action="{{ url_for('casework.change_status', case_id=case.id) }}" method="post" class="form-stack">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="status" value="{{ 'closed' if case.status == 'active' else 'active' }}">
+                    <label class="field"><span>Основание</span><textarea name="reason" minlength="3" maxlength="1000" required></textarea></label>
+                    <p class="field-hint">В закрытом деле сохраняются просмотр, скачивание и проверка. Изменение сведений, состава участников и добавление файлов недоступны.</p>
+                    <button type="submit" class="button button-secondary">{{ 'Закрыть дело' if case.status == 'active' else 'Возобновить дело' }}</button>
+                </form>
+            </details>
+        </div>
+    </section>{% endif %}
+</div>
+<section class="panel case-history">
+    <div class="panel-header"><h2>История дела</h2><a href="{{ url_for('audit', q=case.case_number) }}">Журнал событий</a></div>
+    <div class="timeline">
+        {% for event in case_events %}<div class="timeline-item"><span class="timeline-dot dot-{{ event.severity }}"></span><div><strong>{{ event.description }}</strong><small>{{ format_datetime(event.created_at) }} · {{ event.name }}</small></div></div>
+        {% else %}<p class="empty-mini">Связанные события пока отсутствуют. История старых записей не восстанавливается автоматически.</p>{% endfor %}
+    </div>
+</section>
+{% endblock %}

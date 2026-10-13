@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.venv/
+instance/
+*.db
+*.sqlite3
+migrations/__pycache__/
+.env
+.env.*
+!.env.example
+venv/
+.playwright-cli/
+output/
+tmp/
+labs/private/

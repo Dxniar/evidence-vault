@@ -1,0 +1,66 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="page-heading heading-with-action">
+    <div>
+        <h1>Обзор</h1>
+        <p>Расследования, доказательства и последние события.</p>
+    </div>
+    {% if g.user.role != 'auditor' %}<a href="{{ url_for('cases') }}#new-case" class="button button-primary">Новое расследование</a>{% endif %}
+</div>
+
+<section class="stats-grid" aria-label="Статистика">
+    <article class="stat-card">
+        <div><span>Расследования</span><strong>{{ case_count }}</strong></div>
+    </article>
+    <article class="stat-card">
+        <div><span>Доказательства</span><strong>{{ evidence_count }}</strong></div>
+    </article>
+    <article class="stat-card">
+        <div><span>Целостность</span><strong>{{ verified_count }}</strong><small>файлов подтверждено</small></div>
+    </article>
+</section>
+
+<div class="dashboard-grid">
+    <section class="panel">
+        <div class="panel-header">
+            <div><h2>Последние расследования</h2></div>
+            <a href="{{ url_for('cases') }}">Все расследования</a>
+        </div>
+        {% if recent_cases %}
+            <div class="case-list compact-list">
+                {% for case in recent_cases %}
+                    <a class="case-row" href="{{ url_for('case_detail', case_id=case['id']) }}">
+                        <div class="case-symbol">{{ '%02d'|format(loop.index) }}</div>
+                        <div class="case-primary"><strong>{{ case['title'] }}</strong><small>{{ case['case_number'] }} · {{ format_datetime(case['created_at']) }}</small></div>
+                        <span class="badge badge-{{ case['priority'] }}">{{ {'low':'Низкий','normal':'Обычный','high':'Высокий'}[case['priority']] }}</span>
+                        <span class="row-arrow">›</span>
+                    </a>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="empty-state">
+                <h3>Расследований пока нет</h3>
+                <p>Создайте первую карточку дела и добавьте цифровые доказательства.</p>
+                {% if g.user.role != 'auditor' %}<a class="button button-secondary" href="{{ url_for('cases') }}#new-case">Создать расследование</a>{% endif %}
+            </div>
+        {% endif %}
+    </section>
+
+    <section class="panel">
+        <div class="panel-header">
+            <div><h2>Последние события</h2></div>
+            <a href="{{ url_for('audit') }}">Открыть журнал</a>
+        </div>
+        <div class="timeline">
+            {% for log in recent_logs %}
+                <div class="timeline-item">
+                    <span class="timeline-dot dot-{{ log['severity'] }}"></span>
+                    <div><strong>{{ log['description'] }}</strong><small>{{ format_datetime(log['created_at']) }} · {{ log['ip_address'] }}</small></div>
+                </div>
+            {% else %}
+                <div class="empty-mini">События появятся после начала работы.</div>
+            {% endfor %}
+        </div>
+    </section>
+</div>
+{% endblock %}

@@ -1,0 +1,76 @@
+{% from '_ui.html' import icon, brand, theme_toggle %}
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f5f6f8">
+    <title>{{ title }} · Evidence Vault</title>
+    <link rel="icon" href="{{ asset_url('favicon.svg') }}" type="image/svg+xml">
+    <script src="{{ asset_url('theme.js') }}"></script>
+    <link rel="stylesheet" href="{{ asset_url('style.css') }}">
+</head>
+<body class="{% if not g.user %}auth-body{% endif %}">
+<a class="skip-link" href="#main-content">К содержимому</a>
+{% if g.user %}
+    <div class="app-shell">
+        <button class="sidebar-backdrop" id="sidebarBackdrop" type="button" aria-label="Закрыть меню" hidden tabindex="-1"></button>
+        <aside class="sidebar" id="sidebar" aria-label="Панель навигации">
+            <div class="sidebar-heading">
+                <a class="brand" href="{{ url_for('dashboard') }}" aria-label="Evidence Vault — обзор">{{ brand() }}</a>
+                <button class="icon-button sidebar-close" data-menu-close type="button" aria-label="Закрыть меню">{{ icon('close') }}</button>
+            </div>
+            <nav class="nav-list" aria-label="Основная навигация">
+                {% for endpoint, label, glyph, endpoints in [
+                    ('dashboard', 'Обзор', 'overview', ['dashboard']),
+                    ('cases', 'Расследования', 'folder', ['cases', 'case_detail']),
+                    ('audit', 'Журнал событий', 'list', ['audit']),
+                    ('admin_users', 'Пользователи', 'users', ['admin_users']),
+                    ('account', 'Профиль', 'user', ['account'])
+                ] %}
+                {% if endpoint != 'admin_users' or g.user.role == 'admin' %}
+                <a href="{{ url_for(endpoint) }}" class="nav-link {% if request.endpoint in endpoints %}active{% endif %}" {% if request.endpoint in endpoints %}aria-current="page"{% endif %}>
+                    {{ icon(glyph) }}<span>{{ label }}</span>
+                </a>
+                {% endif %}
+                {% endfor %}
+            </nav>
+            <div class="sidebar-user">
+                <div class="avatar" aria-hidden="true">{{ g.user['name'][0]|upper }}</div>
+                <div class="user-meta"><strong>{{ g.user['name'] }}</strong><small>{{ role_label(g.user['role']) }}</small></div>
+                <form action="{{ url_for('logout') }}" method="post">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="icon-button" type="submit" title="Выйти и завершить все сеансы" aria-label="Выйти и завершить все сеансы">{{ icon('logout') }}</button>
+                </form>
+            </div>
+        </aside>
+        <div class="page-shell">
+            <header class="topbar">
+                <div class="topbar-start">
+                    <button class="icon-button menu-button" id="menuButton" type="button" aria-label="Открыть меню" aria-controls="sidebar" aria-expanded="false">{{ icon('menu') }}</button>
+                    <div class="breadcrumbs"><span>Evidence Vault</span><span aria-hidden="true">/</span><strong>{{ title }}</strong></div>
+                </div>
+                {{ theme_toggle() }}
+            </header>
+            <main class="page-content" id="main-content" tabindex="-1">
+                {% include '_flashes.html' %}
+                {% block content %}{% endblock %}
+            </main>
+        </div>
+    </div>
+{% else %}
+    <header class="auth-topbar">
+        <a class="brand" href="{{ url_for('login') }}" aria-label="Evidence Vault — вход">{{ brand() }}</a>
+        {{ theme_toggle() }}
+    </header>
+    <main class="auth-shell" id="main-content" tabindex="-1">
+        <section class="auth-card" aria-label="Доступ к Evidence Vault">
+            {% include '_flashes.html' %}
+            {% block auth_content %}{% endblock %}
+        </section>
+        <p class="auth-caption">Evidence Vault · Цифровые доказательства</p>
+    </main>
+{% endif %}
+<script src="{{ asset_url('app.js') }}" defer></script>
+</body>
+</html>

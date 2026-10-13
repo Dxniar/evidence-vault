@@ -1,0 +1,29 @@
+# Manual deploys: apply Supabase migrations locally before deploying an update.
+# Do not put real secrets or database passwords in this file.
+services:
+  - type: web
+    name: evidence-vault
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    autoDeployTrigger: "off"
+    envVars:
+      - key: EVIDENCE_VAULT_SECRET
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+      - key: SUPABASE_STORAGE_BUCKET
+        sync: false
+      - key: TRUST_PROXY_COUNT
+        value: "1"
+      # Remove both Google entries if Google sign-in is not needed.
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false

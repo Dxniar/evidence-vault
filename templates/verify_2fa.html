@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+{% block auth_content %}
+<div class="auth-heading">
+    <h2>Подтвердите вход</h2>
+    <p>Введите код из приложения-аутентификатора для аккаунта <strong>{{ user['email'] }}</strong>.</p>
+</div>
+<form method="post" class="form-stack otp-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label class="field">
+        <span>Одноразовый код</span>
+        <input class="otp-input" type="text" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="000000" autocomplete="one-time-code" required autofocus>
+    </label>
+    <button class="button button-primary button-wide" type="submit">Подтвердить вход</button>
+</form>
+<p class="auth-switch"><a href="{{ url_for('login') }}">Вернуться ко входу</a></p>
+{% endblock %}

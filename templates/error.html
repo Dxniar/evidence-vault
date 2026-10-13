@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="error-page">
+    <span>{{ code }}</span>
+    <h1>{{ title }}</h1>
+    <p>{{ message }}</p>
+    <a class="button button-primary" href="{{ url_for('dashboard' if g.user else 'login') }}">Вернуться</a>
+</div>
+{% endblock %}
+{% block auth_content %}
+<div class="error-page auth-error">
+    <span>{{ code }}</span>
+    <h2>{{ title }}</h2>
+    <p>{{ message }}</p>
+    <a class="button button-primary" href="{{ url_for('login') }}">На страницу входа</a>
+</div>
+{% endblock %}

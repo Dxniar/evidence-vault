@@ -1,0 +1,90 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="page-heading">
+    <h1>Расследования</h1>
+    <p>{% if g.user.role == 'auditor' %}Дела и проверка доказательств.{% else %}Дела и связанные с ними доказательства.{% endif %}</p>
+</div>
+
+<div class="content-split{% if g.user.role == 'auditor' %} single-column{% endif %}">
+    {% if g.user.role != 'auditor' %}<section class="panel create-panel" id="new-case">
+        <div class="panel-header"><div><h2>Создать расследование</h2></div></div>
+        <form method="post" enctype="multipart/form-data" class="form-stack">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label class="field">
+                <span>Регистрационный номер</span>
+                <input name="reference_number" maxlength="80" placeholder="Номер дела в вашей системе учёта">
+            </label>
+            <label class="field">
+                <span>Название дела</span>
+                <input type="text" name="title" placeholder="Например, утечка документов" maxlength="120" required>
+            </label>
+            <label class="field">
+                <span>Краткое описание</span>
+                <textarea name="description" rows="4" placeholder="Обстоятельства и задача расследования"></textarea>
+            </label>
+            <label class="field">
+                <span>Приоритет</span>
+                <select name="priority">
+                    <option value="low">Низкий</option>
+                    <option value="normal" selected>Обычный</option>
+                    <option value="high">Высокий</option>
+                </select>
+            </label>
+            <label class="file-picker-row" data-file-picker>
+                <input type="file" name="files" multiple>
+                <span class="file-picker-copy">
+                    <strong data-file-label>Добавить файлы</strong>
+                    <small>Необязательно · до 20 файлов · до 16 МБ каждый</small>
+                </span>
+                <span class="file-picker-action">Выбрать</span>
+            </label>
+            {% include '_source_fields.html' %}
+            <button class="button button-primary button-wide" type="submit">Создать расследование</button>
+        </form>
+    </section>{% endif %}
+
+    <section class="panel cases-panel">
+        <div class="panel-header">
+            <div><span class="panel-kicker">{{ cases|length }} {{ plural(cases|length, 'запись', 'записи', 'записей') }}</span><h2>Все расследования</h2></div>
+        </div>
+        <form method="get" class="search-form case-search">
+            <label class="field"><span>Поиск по названию или номеру</span><input name="q" value="{{ q }}" maxlength="200" placeholder="Найти дело"></label>
+            <label class="field"><span>Состояние</span><select name="status"><option value="all">Все дела</option><option value="active" {% if selected_status == 'active' %}selected{% endif %}>В работе</option><option value="closed" {% if selected_status == 'closed' %}selected{% endif %}>Закрытые</option></select></label>
+            <button class="button button-secondary" type="submit">Найти</button>
+        </form>
+        {% if cases %}
+            <div class="case-list">
+                {% for case in cases %}
+                    <a class="case-row expanded" href="{{ url_for('case_detail', case_id=case['id']) }}">
+                        <div class="case-symbol">{{ case['case_number'][-4:] }}</div>
+                        <div class="case-primary">
+                            <strong>{{ case['title'] }}</strong>
+                            <small>{{ case['case_number'] }} · {{ case['evidence_count'] }} {{ plural(case['evidence_count'], 'файл', 'файла', 'файлов') }}</small>
+                            {% if case.reference_number %}<small>{{ case.reference_number }}</small>{% endif %}
+                            <p>{{ case['description'] or 'Описание не добавлено' }}</p>
+                        </div>
+                        <div class="case-meta">
+                            <span class="badge badge-{{ case['priority'] }}">{{ {'low':'Низкий','normal':'Обычный','high':'Высокий'}[case['priority']] }}</span>
+                            <span class="badge badge-normal">{{ 'Закрыто' if case.status == 'closed' else 'В работе' }}</span>
+                            <small>{{ format_datetime(case['updated_at']) }}</small>
+                        </div>
+                        <span class="row-arrow">›</span>
+                    </a>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="empty-state">
+                <h3>Здесь появятся дела</h3>
+                <p>{% if g.user.role == 'auditor' %}Пока нет доступных расследований.{% else %}Заполните форму, чтобы начать первое расследование.{% endif %}</p>
+            </div>
+        {% endif %}
+    </section>
+</div>
+{% if page > 1 or has_next %}
+<nav class="pagination" aria-label="Страницы расследований">
+    {% if page > 1 %}<a class="button button-secondary" href="{{ url_for('cases', page=page-1, q=q, status=selected_status) }}">← Назад</a>{% endif %}
+    <span>Страница {{ page }}</span>
+    {% if has_next %}<a class="button button-secondary" href="{{ url_for('cases', page=page+1, q=q, status=selected_status) }}">Далее →</a>{% endif %}
+</nav>
+{% endif %}
+{% endblock %}

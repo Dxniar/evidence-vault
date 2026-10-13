@@ -1,0 +1,75 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="page-heading">
+    <h1>Профиль и безопасность</h1>
+    <p>Учётные данные и способы входа.</p>
+</div>
+{% if g.user.must_change_password %}
+<div class="flash flash-warning account-notice"><span class="flash-symbol">!</span><span>Для доступа к разделам приложения сначала смените начальный пароль.</span></div>
+{% endif %}
+<div class="profile-grid">
+    <section class="panel profile-card">
+        <div class="large-avatar">{{ g.user['name'][0]|upper }}</div>
+        <h2>{{ g.user['name'] }}</h2>
+        <p>{{ g.user['email'] }}</p>
+        <span class="role-chip">{{ role_label(g.user['role']) }}</span>
+        <dl class="profile-data">
+            <div><dt>Дата регистрации</dt><dd>{{ format_datetime(g.user['created_at']) }}</dd></div>
+            <div><dt>Последний вход</dt><dd>{{ format_datetime(g.user['last_login']) }}</dd></div>
+        </dl>
+    </section>
+    <section class="panel security-card">
+        <div class="panel-header"><div><h2>Способы входа</h2></div></div>
+        <div class="security-list">
+            {% if g.user.has_local_password %}
+            <div><div><strong>Пароль</strong></div><span class="state-label">Настроен</span></div>
+            {% endif %}
+            {% if g.user.google_sub %}
+            <div><div><strong>Google</strong></div><span class="state-label">Подключён</span></div>
+            {% endif %}
+            <div><div><strong>Двухфакторный вход</strong><p>Код из приложения-аутентификатора.</p></div><span class="state-label">{{ 'Включён' if g.user.totp_enabled else 'Не настроен' }}</span></div>
+        </div>
+    </section>
+    <section class="panel security-card account-action-card">
+        <div class="panel-header"><div><h2>{{ 'Сменить пароль' if g.user.has_local_password else 'Создать пароль' }}</h2></div></div>
+        <p>{% if g.user.has_local_password %}Укажите текущий и новый пароль. После смены прежние сеансы завершатся.{% else %}Если нужен дополнительный способ входа, создайте пароль и подтвердите действие новым кодом 2FA.{% endif %}</p>
+        <form method="post" action="{{ url_for('change_password') }}" class="form-stack">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            {% if g.user.has_local_password %}
+            <label class="field"><span>Текущий пароль</span><input type="password" name="current_password" autocomplete="current-password" required></label>
+            {% else %}
+            <label class="field"><span>Новый код 2FA</span><input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required></label>
+            <p class="field-hint">Код, уже использованный для входа, не подойдёт. Дождитесь следующего кода.</p>
+            {% endif %}
+            <label class="field"><span>Новый пароль</span><input type="password" name="new_password" minlength="12" autocomplete="new-password" required></label>
+            <label class="field"><span>Повторите новый пароль</span><input type="password" name="confirm_password" minlength="12" autocomplete="new-password" required></label>
+            <p class="field-hint">Минимум 12 символов, заглавные и строчные буквы, цифра.</p>
+            <button class="button button-primary" type="submit">Сохранить пароль</button>
+        </form>
+    </section>
+    {% if google_enabled %}
+    <section class="panel security-card google-card account-action-card">
+        <div class="panel-header"><div><h2>Google-аккаунт</h2></div></div>
+        {% if g.user.google_sub %}
+        <p>Google подключён. При следующем входе можно выбрать Google, затем ввести свой TOTP-код.</p>
+        {% if g.user.has_local_password %}
+        <form method="post" action="{{ url_for('disconnect_google') }}" class="form-stack">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label class="field"><span>Текущий пароль для отключения</span><input type="password" name="password" autocomplete="current-password" required></label>
+            <button class="button button-secondary" type="submit">Отключить Google</button>
+        </form>
+        {% else %}<p>Отключить Google можно после создания пароля.</p>{% endif %}
+        {% else %}
+        <p>Подключите Google-аккаунт с подтверждённой почтой {{ g.user.email }}. Это не изменит вашу роль и права.</p>
+        {% if not g.user.must_change_password %}
+        <form method="post" action="{{ url_for('connect_google') }}" class="form-stack">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label class="field"><span>Текущий пароль для подтверждения</span><input type="password" name="password" autocomplete="current-password" required></label>
+            <button class="button button-primary" type="submit">Подключить Google</button>
+        </form>
+        {% else %}<p>Сначала смените начальный пароль.</p>{% endif %}
+        {% endif %}
+    </section>
+    {% endif %}
+</div>
+{% endblock %}

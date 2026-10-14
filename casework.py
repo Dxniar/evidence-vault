@@ -3,7 +3,7 @@ from flask import Blueprint, abort, flash, g, redirect, request, session, url_fo
 from sqlalchemy import select
 
 from models import AuditLog, Case, CaseMember, Evidence, EvidenceTransfer, User, db, utc_now
-from app import append_event, can_manage_case, can_view_case, login_required
+from app import append_event, can_manage_case, can_view_case, login_required, session_matches_user
 
 bp = Blueprint("casework", __name__)
 
@@ -16,7 +16,7 @@ def managed_case(case_id, extra_user_id=None):
     users = db.session.scalars(select(User).where(User.id.in_(ids)).order_by(User.id)
         .with_for_update().execution_options(populate_existing=True)).all()
     actor = next((user for user in users if user.id == g.user.id), None)
-    if not actor or not actor.is_active or not actor.totp_enabled or actor.session_version != session.get("session_version"):
+    if not session_matches_user(actor):
         session.clear()
         abort(403)
     if not can_view_case(case, actor):

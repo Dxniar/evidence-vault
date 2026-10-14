@@ -1,6 +1,15 @@
 # Evidence Vault: бесплатное размещение на Render
 
-Проверено по официальной документации **13 октября 2026 года**. Для курсового проекта подходит связка **Render Free Web Service + существующие Supabase PostgreSQL и Storage**. Здесь описана подготовка; облачный сервис и Git-репозиторий пока не созданы.
+Проверено по официальной документации **13 октября 2026 года**. Проект уже размещён на **Render Free Web Service** и использует существующие **Supabase PostgreSQL и Storage**.
+
+- Сайт: [evidence-vault-dxniar.onrender.com](https://evidence-vault-dxniar.onrender.com).
+- Исходники: [Dxniar/evidence-vault](https://github.com/Dxniar/evidence-vault), публичный репозиторий с согласия владельца.
+- Панель сервиса: [Render Dashboard](https://dashboard.render.com/web/srv-db79peid0e5s73fq76hg).
+- Первое размещение: `df07200e2f86d455d7b8cda8511e9cf96fefd521`, завершилось **14 октября 2026 года в 02:04 (Asia/Qyzylorda)**. Тариф — `free`, регион — `singapore`. Результаты последующих обновлений сохраняются локально в `output/deploy/deployment.json`.
+- Проверки `/healthz`, `/readyz`, `/login`, CSS и JavaScript вернули HTTP 200; `/readyz` подтвердил подключение БД и Storage. Результаты сохранены в `output/deploy/http-verification.json`.
+- Google-вход и TOTP **проверены на опубликованном сайте**: после возврата Google открылось «Подтвердите вход», пользователь ввёл код из своего аутентификатора, затем открылась страница `/dashboard` с заголовком «Обзор · Evidence Vault». Лишняя точка после `callback` в настройках Google исправлена и сохранена; повторное открытие клиента подтвердило точный адрес. Техническая проверка сохранена в `output/deploy/oauth-redirect-check.json`, подтверждение настроек — в `output/deploy/google-redirect-saved.jpg`, успешный вход — в `output/deploy/google-login-dashboard.jpg`.
+
+Ниже приведены настройки действующего размещения и порядок дальнейших обновлений. Секреты, локальные данные и результаты проверок в публичный репозиторий не отправлены.
 
 ## 1. Проверьте Supabase
 
@@ -23,15 +32,17 @@ docker compose run --rm web flask --app app:create_app db upgrade
 
 Миграции выполняйте **до** ручного размещения каждой новой версии. На Render Free нет команд `preDeployCommand` и доступа к shell сервиса; поэтому отдельного запуска миграций в `render.yaml` нет. [Команды размещения](https://render.com/docs/deploys), [ограничения Free](https://render.com/docs/free).
 
-## 3. Добавьте исходники в приватный Git-репозиторий
+## 3. Обновляйте исходники в Git-репозитории
 
-Сейчас эта папка ещё не является Git-репозиторием. Создайте приватный репозиторий GitHub/GitLab и поместите в него проект, включая `Dockerfile`, `render.yaml`, `requirements.txt`, `migrations`, `templates` и `static`.
+Исходники уже опубликованы в [Dxniar/evidence-vault](https://github.com/Dxniar/evidence-vault), ветка `main`. В размещённую версию вошли 77 файлов проекта, включая `Dockerfile`, `render.yaml`, `requirements.txt`, миграции, шаблоны, статические файлы и код лабораторных заданий. Публикация выполнена через подключение GitHub; локальная папка при этом не была инициализирована как Git-репозиторий. Для последующих обновлений используйте этот же репозиторий.
 
-Перед первой отправкой проверьте список файлов: `.env`, содержимое `instance`, локальные базы, тестовые отчёты `output`, виртуальные окружения и ключи туда попадать не должны. В проекте уже есть `.gitignore` и `.dockerignore`; `.env.example` содержит только образцы настроек. Подключение приватного репозитория поддерживается Render. [Создание Web Service](https://render.com/docs/web-services).
+Перед каждой отправкой проверьте список файлов: `.env`, содержимое `instance`, локальные базы, тестовые отчёты `output`, виртуальные окружения и ключи туда попадать не должны. В проекте уже есть `.gitignore` и `.dockerignore`; `.env.example` содержит только образцы настроек. При необходимости Render также поддерживает приватный репозиторий. [Создание Web Service](https://render.com/docs/web-services).
 
 ## 4. Создайте Render Web Service
 
-В Render выберите **New → Web Service**, подключите репозиторий и задайте:
+Действующий сервис `evidence-vault-dxniar` уже создан в рабочем пространстве **«Данияр's workspace»**. Автоматическое размещение отключено; обновления запускаются вручную после проверки миграций. Не создавайте второй сервис для обновления проекта.
+
+Если потребуется создать отдельный экземпляр, в Render выберите **New → Web Service**, подключите репозиторий и задайте:
 
 | Настройка | Значение |
 | --- | --- |
@@ -42,13 +53,15 @@ docker compose run --rm web flask --app app:create_app db upgrade
 | Auto-Deploy | **Off** |
 | Регион | По возможности рядом с регионом Supabase |
 
+При создании действующего сервиса через подключение Render отдельный `Health Check Path` не был задан: используется стандартная проверка доступности порта. Маршруты `/healthz` и `/readyz` проверены отдельно по публичному HTTPS-адресу.
+
 Либо используйте **New → Blueprint** и файл `render.yaml`: он описывает один бесплатный Docker-сервис, проверку `/healthz` и ручные обновления. В нём нет новых БД, дисков или платных ресурсов. Поле `autoDeployTrigger: off` — актуальный эквивалент устаревшего `autoDeploy: false`. [Формат Blueprint](https://render.com/docs/blueprint-spec).
 
 Render предоставляет приложению `PORT` (по умолчанию `10000`). Docker-запуск проекта должен использовать этот порт и адрес `0.0.0.0`; проброс порта из локального `compose.yaml` на Render не применяется. [Порты и HTTPS](https://render.com/docs/web-services).
 
 ## 5. Заполните Environment
 
-Секреты внесите только в панель Render. При создании Blueprint переменные с `sync: false` запрашиваются отдельно; при последующих обновлениях новые переменные добавляйте через **Environment**. [Передача секретов](https://render.com/docs/blueprint-spec).
+На действующем сервисе параметры Supabase и Google уже настроены, а для сеансов создан отдельный облачный секрет. Секреты храните только в Environment Render. При создании Blueprint переменные с `sync: false` запрашиваются отдельно; при последующих обновлениях новые переменные добавляйте через **Environment**. [Передача секретов](https://render.com/docs/blueprint-spec).
 
 | Переменная | Что указать |
 | --- | --- |
@@ -70,13 +83,15 @@ Render предоставляет приложению `PORT` (по умолча
 
 ## 6. Обновите Google OAuth
 
+При каждом новом входе и привязке Google приложение передаёт `prompt=select_account`, чтобы Google показывал выбор аккаунта, даже если браузер уже авторизован. Следователь входит после Google без отдельного локального TOTP. Администратор и аудитор, а также все пользователи при входе по почте и паролю подтверждают TOTP Evidence Vault. Для повторной демонстрации выйдите из Evidence Vault и снова нажмите «Войти через Google».
+
 В **Google Auth Platform → Clients → ваш Web application → Authorized redirect URIs** добавьте **точный** адрес:
 
 ```text
-https://<фактически-выданный-домен>.onrender.com/auth/google/callback
+https://evidence-vault-dxniar.onrender.com/auth/google/callback
 ```
 
-Локальный `http://localhost:8080/auth/google/callback` можно сохранить отдельной записью. Для собственного домена добавьте отдельный HTTPS callback. Схема, имя хоста, путь и завершающий слеш должны совпадать с адресом приложения; иначе Google вернёт `redirect_uri_mismatch`. В режиме Testing добавьте используемые Google-аккаунты в тестовые пользователи. [Настройка Google OAuth](https://developers.google.com/identity/protocols/oauth2/web-server).
+В конце адреса **нет точки и слеша**. Ранее в записи Google была обнаружена лишняя точка после `callback`; она исправлена, сохранение и точный адрес подтверждены повторным открытием клиента. Новая попытка Google-входа и TOTP завершилась открытием «Обзора». Локальный `http://localhost:8080/auth/google/callback` можно сохранить отдельной записью. Для собственного домена добавьте отдельный HTTPS callback. Схема, имя хоста и весь путь должны совпадать с адресом приложения; иначе Google вернёт `redirect_uri_mismatch`. В режиме Testing добавьте используемые Google-аккаунты в тестовые пользователи. [Настройка Google OAuth](https://developers.google.com/identity/protocols/oauth2/web-server).
 
 ## 7. Разместите и проверьте
 

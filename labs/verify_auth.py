@@ -54,7 +54,7 @@ class FakeGoogle:
                        "email_verified": True}
         self.redirect_uri = None
 
-    def authorize_redirect(self, redirect_uri):
+    def authorize_redirect(self, redirect_uri, **kwargs):
         self.redirect_uri = redirect_uri
         return redirect("/fake-google")
 

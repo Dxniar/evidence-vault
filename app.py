@@ -143,7 +143,7 @@ def create_app(test_config: dict | None = None) -> Flask:
                 # round trip for pages that perform no database writes.
                 db.session.connection(execution_options={"isolation_level": "AUTOCOMMIT"})
             user = db.session.get(User, user_id)
-            if user and user.is_active and user.totp_enabled and session.get("session_version") == user.session_version:
+            if session_matches_user(user):
                 g.user = user
             else:
                 session.clear()
@@ -152,7 +152,7 @@ def create_app(test_config: dict | None = None) -> Flask:
             if not expected or not secrets.compare_digest(expected, received):
                 abort(400, "Проверка формы не пройдена. Обновите страницу и повторите действие.")
         if g.user and g.user.must_change_password and request.endpoint not in {
-                "account", "change_password", "logout", "static"}:
+                "account", "change_password", "setup_account_2fa", "logout", "static"}:
             return redirect(url_for("account"))
 
     @app.after_request
@@ -232,7 +232,8 @@ def create_app(test_config: dict | None = None) -> Flask:
         session.clear()
         session["google_flow"] = "login"
         try:
-            return client.authorize_redirect(url_for("google_callback", _external=True))
+            return client.authorize_redirect(
+                url_for("google_callback", _external=True), prompt="select_account")
         except (OAuthError, RequestException, ValueError) as exc:
             app.logger.warning("Google sign-in could not start: %s", type(exc).__name__)
             clear_google_flow()
@@ -328,6 +329,15 @@ def create_app(test_config: dict | None = None) -> Flask:
             session.clear()
             flash("Нет доступа. Попросите администратора выдать доступ или подключите Google в профиле.", "danger")
             return redirect(url_for("login"))
+        if user.role == "investigator":
+            user.last_login = utc_now()
+            user.failed_attempts = 0
+            user.locked_until = None
+            append_event("GOOGLE_LOGIN_SUCCESS", "Успешный вход через Google", "success", user.id,
+                         details={"auth_method": "google", "local_totp_required": False})
+            db.session.commit()
+            start_session(user, auth_method="google")
+            return redirect(url_for("account" if user.must_change_password else "dashboard"))
         session.clear()
         session["csrf_token"] = secrets.token_urlsafe(32)
         session["preauth_user_id"] = user.id
@@ -623,6 +633,19 @@ def create_app(test_config: dict | None = None) -> Flask:
     def account():
         return render_template("account.html", title="Профиль", google_enabled=google_client() is not None)
 
+    @app.post("/account/2fa/setup")
+    @login_required
+    def setup_account_2fa():
+        if g.user.totp_enabled:
+            return redirect(url_for("account"))
+        user = g.user
+        session.clear()
+        session["csrf_token"] = secrets.token_urlsafe(32)
+        session["preauth_user_id"] = user.id
+        session["preauth_version"] = user.session_version
+        session["preauth_method"] = "google"
+        return redirect(url_for("setup_2fa"))
+
     @app.post("/account/password")
     @login_required
     def change_password():
@@ -654,7 +677,7 @@ def create_app(test_config: dict | None = None) -> Flask:
         g.user.session_version += 1
         append_event("PASSWORD_CHANGED", "Пароль обновлён, прежние сеансы завершены", "success")
         db.session.commit()
-        start_session(g.user)
+        start_session(g.user, auth_method=session.get("auth_method", "totp"))
         flash("Пароль сохранён. Предыдущие сеансы завершены.", "success")
         return redirect(url_for("account"))
 
@@ -678,7 +701,8 @@ def create_app(test_config: dict | None = None) -> Flask:
         session["google_link_user_id"] = g.user.id
         session["google_link_version"] = g.user.session_version
         try:
-            return client.authorize_redirect(url_for("google_callback", _external=True))
+            return client.authorize_redirect(
+                url_for("google_callback", _external=True), prompt="select_account")
         except (OAuthError, RequestException, ValueError) as exc:
             app.logger.warning("Google account linking could not start: %s", type(exc).__name__)
             clear_google_flow()
@@ -703,6 +727,11 @@ def create_app(test_config: dict | None = None) -> Flask:
         g.user.session_version += 1
         append_event("GOOGLE_UNLINKED", "Google-аккаунт отключён от профиля", "warning")
         db.session.commit()
+        if session.get("auth_method") == "google":
+            session.clear()
+            g.user = None
+            flash("Google отключён. Войдите по паролю и подтвердите код TOTP.", "success")
+            return redirect(url_for("login"))
         start_session(g.user)
         flash("Google-аккаунт отключён. Вход по паролю и TOTP доступен.", "success")
         return redirect(url_for("account"))
@@ -983,11 +1012,25 @@ def preauth_user() -> User | None:
     return user
 
 
-def start_session(user: User) -> None:
+def session_matches_user(user: User | None) -> bool:
+    if (not user or not user.is_active or session.get("user_id") != user.id
+            or session.get("session_version") != user.session_version):
+        return False
+    method = session.get("auth_method", "totp")
+    if method == "google":
+        return (user.role == "investigator" and bool(user.google_sub)
+                and session.get("google_sub") == user.google_sub)
+    return method == "totp" and user.totp_enabled
+
+
+def start_session(user: User, *, auth_method: str = "totp") -> None:
     session.clear()
     session.permanent = True
     session["user_id"] = user.id
     session["session_version"] = user.session_version
+    session["auth_method"] = auth_method
+    if auth_method == "google":
+        session["google_sub"] = user.google_sub
     session["csrf_token"] = secrets.token_urlsafe(32)
     g.user = user
 
@@ -1008,8 +1051,7 @@ def fail_auth(user: User, event_type: str, description: str) -> None:
 
 def require_sensitive_confirmation() -> None:
     db.session.refresh(g.user, with_for_update=True)
-    if (not g.user.is_active or not g.user.totp_enabled
-            or g.user.session_version != session.get("session_version")):
+    if not session_matches_user(g.user) or not g.user.totp_enabled:
         session.clear()
         abort(403)
     if g.user.locked_until and as_utc(g.user.locked_until) > utc_now():
@@ -1074,8 +1116,7 @@ def revalidate_case_access(case: Case, *, require_edit: bool = False, allow_clos
     """Serialize publication with case closure/access changes after external I/O."""
     db.session.refresh(case, with_for_update=True)
     db.session.refresh(g.user, with_for_update=True)
-    if (not g.user.is_active or not g.user.totp_enabled
-            or session.get("session_version") != g.user.session_version):
+    if not session_matches_user(g.user):
         session.clear()
         g.user = None
         abort(403, "Сеанс завершён. Войдите повторно.")

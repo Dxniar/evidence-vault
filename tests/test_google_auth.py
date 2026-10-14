@@ -1,9 +1,15 @@
 from flask import redirect
 from authlib.integrations.flask_client import OAuth
+import base64
+import hashlib
+import io
+import os
 import pyotp
 from datetime import timedelta
+from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
 
-from models import AuditLog, User, db, utc_now
+from models import AuditLog, Case, Evidence, User, db, utc_now
 from tests.common import AppTestCase
 
 
@@ -14,7 +20,7 @@ class FakeGoogle:
         self.claims = {"sub": "google-id-123", "email": "student@gmail.com", "email_verified": True}
         self.redirect_uri = None
 
-    def authorize_redirect(self, redirect_uri):
+    def authorize_redirect(self, redirect_uri, **kwargs):
         self.redirect_uri = redirect_uri
         return redirect("/fake-google")
 
@@ -58,7 +64,7 @@ class GoogleLoginTestCase(AppTestCase):
         self.assertIn("/login", self.client.get("/auth/google/callback").location)
 
     def test_link_then_google_login_requires_totp_and_keeps_role(self):
-        user_id, secret = self.make_user(email="student@gmail.com")
+        user_id, secret = self.make_user(role="auditor", email="student@gmail.com")
         self.assume_session(user_id)
         self.assertEqual(self.post("/account/google/connect", {"password": "wrong"}).status_code, 302)
         self.assertIsNone(self.google.redirect_uri)
@@ -68,7 +74,7 @@ class GoogleLoginTestCase(AppTestCase):
         with self.app.app_context():
             user = db.session.get(User, user_id)
             self.assertEqual(user.google_sub, "google-id-123")
-            self.assertEqual(user.role, "investigator")
+            self.assertEqual(user.role, "auditor")
             self.assertEqual(user.session_version, 1)
 
         self.post("/logout")
@@ -131,7 +137,7 @@ class GoogleLoginTestCase(AppTestCase):
         self.assertEqual(self.client.get("/dashboard").status_code, 302)
 
     def test_google_can_enroll_totp_but_cannot_skip_it(self):
-        user_id, secret = self.make_user(email="student@gmail.com", enabled=False)
+        user_id, secret = self.make_user(role="auditor", email="student@gmail.com", enabled=False)
         with self.app.app_context():
             db.session.get(User, user_id).google_sub = "google-id-123"
             db.session.commit()
@@ -139,6 +145,202 @@ class GoogleLoginTestCase(AppTestCase):
         self.assertIn("/setup-2fa", self.client.get("/auth/google/callback").location)
         self.assertEqual(self.client.get("/dashboard").status_code, 302)
         self.assertIn("/dashboard", self.post("/setup-2fa", {"code": pyotp.TOTP(secret).now()}).location)
+
+    def test_investigator_google_login_skips_local_totp_but_password_still_requires_it(self):
+        for enabled in (False, True):
+            with self.subTest(totp_enrolled=enabled):
+                self.client = self.app.test_client()
+                self.client.get("/login")
+                email, sub = f"investigator-{int(enabled)}@example.com", f"google-investigator-{enabled}"
+                user_id, _ = self.make_user(email=email, enabled=enabled)
+                with self.app.app_context():
+                    db.session.get(User, user_id).google_sub = sub
+                    db.session.commit()
+                self.google.claims.update(email=email, sub=sub)
+                self.post("/auth/google")
+                self.assertIn("/dashboard", self.client.get("/auth/google/callback").location)
+                self.assertEqual(self.client.get("/dashboard").status_code, 200)
+                self.assertEqual(self.client.get("/admin/users").status_code, 403)
+                with self.client.session_transaction() as session:
+                    self.assertNotIn("preauth_user_id", session)
+                with self.app.app_context():
+                    user = db.session.get(User, user_id)
+                    self.assertEqual(user.totp_enabled, enabled)
+                    self.assertIsNone(user.last_totp_step)
+                    self.assertIsNotNone(user.last_login)
+                    self.assertEqual(db.session.query(AuditLog).filter_by(
+                        event_type="GOOGLE_LOGIN_SUCCESS", user_id=user_id).count(), 1)
+
+                saved_cookie = self.client.get_cookie("session").value
+                self.post("/logout")
+                replay = self.app.test_client()
+                replay.set_cookie("session", saved_cookie)
+                self.assertIn("/login", replay.get("/dashboard").location)
+                self.client.get("/login")
+                password_login = self.post("/login", {"email": email, "password": "StrongPass123"})
+                self.assertIn("/verify-2fa" if enabled else "/setup-2fa", password_login.location)
+                self.assertEqual(self.client.get("/dashboard").status_code, 302)
+
+    def test_google_login_still_requires_totp_for_admin_and_auditor(self):
+        for role in ("admin", "auditor"):
+            for enabled in (False, True):
+                with self.subTest(role=role, totp_enrolled=enabled):
+                    self.client = self.app.test_client()
+                    self.client.get("/login")
+                    email, sub = f"{role}-{int(enabled)}@example.com", f"google-{role}-{enabled}"
+                    user_id, secret = self.make_user(role=role, email=email, enabled=enabled)
+                    with self.app.app_context():
+                        db.session.get(User, user_id).google_sub = sub
+                        db.session.commit()
+                    self.google.claims.update(email=email, sub=sub)
+                    self.post("/auth/google")
+                    challenge = "/verify-2fa" if enabled else "/setup-2fa"
+                    self.assertIn(challenge, self.client.get("/auth/google/callback").location)
+                    self.assertEqual(self.client.get("/dashboard").status_code, 302)
+                    self.assertIn("/dashboard", self.post(challenge, {"code": pyotp.TOTP(secret).now()}).location)
+                    self.assertEqual(self.client.get("/dashboard").status_code, 200)
+
+    def test_google_only_investigator_session_does_not_survive_role_change(self):
+        for role in ("admin", "auditor"):
+            for enabled in (False, True):
+                with self.subTest(new_role=role, totp_enrolled=enabled):
+                    self.client = self.app.test_client()
+                    self.client.get("/login")
+                    email, sub = f"promoted-{role}-{int(enabled)}@example.com", f"promoted-{role}-{enabled}"
+                    user_id, _ = self.make_user(email=email, enabled=enabled)
+                    with self.app.app_context():
+                        db.session.get(User, user_id).google_sub = sub
+                        db.session.commit()
+                    self.google.claims.update(email=email, sub=sub)
+                    self.post("/auth/google")
+                    self.assertIn("/dashboard", self.client.get("/auth/google/callback").location)
+                    self.assertEqual(self.client.get("/dashboard").status_code, 200)
+                    with self.app.app_context():
+                        # Even a role update outside the admin form must not turn
+                        # a Google-only session into an admin/auditor session.
+                        db.session.get(User, user_id).role = role
+                        db.session.commit()
+                    self.assertIn("/login", self.client.get("/dashboard").location)
+                    with self.client.session_transaction() as session:
+                        self.assertNotIn("user_id", session)
+
+    def test_google_only_investigator_session_is_revoked_when_disabled(self):
+        user_id, _ = self.make_user(email="student@gmail.com", enabled=False)
+        with self.app.app_context():
+            db.session.get(User, user_id).google_sub = "google-id-123"
+            db.session.commit()
+        self.post("/auth/google")
+        self.assertIn("/dashboard", self.client.get("/auth/google/callback").location)
+        self.assertEqual(self.client.get("/dashboard").status_code, 200)
+        with self.app.app_context():
+            db.session.get(User, user_id).is_active = False
+            db.session.commit()
+        self.assertIn("/login", self.client.get("/dashboard").location)
+
+    def test_google_investigator_can_optionally_enroll_totp_and_add_password(self):
+        user_id, secret = self.make_user(email="student@gmail.com", enabled=False)
+        with self.app.app_context():
+            user = db.session.get(User, user_id)
+            user.google_sub = "google-id-123"
+            user.has_local_password = False
+            user.must_change_password = True
+            db.session.commit()
+        self.post("/auth/google")
+        self.assertIn("/account", self.client.get("/auth/google/callback").location)
+        self.assertIn("/account", self.client.get("/dashboard").location)
+        self.assertIn("/setup-2fa", self.post("/account/2fa/setup").location)
+        self.assertEqual(self.client.get("/dashboard").status_code, 302)
+        now = utc_now()
+        with patch("app.utc_now", return_value=now):
+            self.assertIn("/account", self.post("/setup-2fa", {
+                "code": pyotp.TOTP(secret).at(now.timestamp())}).location)
+        later = now + timedelta(seconds=30)
+        with patch("app.utc_now", return_value=later):
+            self.assertIn("/account", self.post("/account/password", {
+                "new_password": "NewStrongPass123", "confirm_password": "NewStrongPass123",
+                "code": pyotp.TOTP(secret).at(later.timestamp())}).location)
+        with self.app.app_context():
+            user = db.session.get(User, user_id)
+            self.assertTrue(user.totp_enabled)
+            self.assertTrue(user.has_local_password)
+            self.assertFalse(user.must_change_password)
+        self.assertEqual(self.client.get("/dashboard").status_code, 200)
+        self.post("/logout")
+        self.client.get("/login")
+        self.assertIn("/verify-2fa", self.post("/login", {
+            "email": "student@gmail.com", "password": "NewStrongPass123"}).location)
+        self.assertEqual(self.client.get("/dashboard").status_code, 302)
+
+    def test_google_only_investigator_requires_totp_enrollment_before_auth_settings_changes(self):
+        user_id, _ = self.make_user(email="student@gmail.com", enabled=False)
+        with self.app.app_context():
+            user = db.session.get(User, user_id)
+            user.google_sub = "google-id-123"
+            original_hash = user.password_hash
+            db.session.commit()
+        changes = (
+            ("/account/password", {"current_password": "StrongPass123", "new_password": "NewStrongPass123",
+                                    "confirm_password": "NewStrongPass123"}),
+            ("/account/google/disconnect", {"password": "StrongPass123"}),
+        )
+        for path, data in changes:
+            with self.subTest(path=path):
+                self.client.get("/login")
+                self.post("/auth/google")
+                self.assertIn("/dashboard", self.client.get("/auth/google/callback").location)
+                self.assertEqual(self.post(path, data).status_code, 403)
+                with self.app.app_context():
+                    user = db.session.get(User, user_id)
+                    self.assertEqual(user.google_sub, "google-id-123")
+                    self.assertEqual(user.password_hash, original_hash)
+
+    def test_unlinking_google_revokes_investigator_google_only_session(self):
+        user_id, _ = self.make_user(email="student@gmail.com")
+        with self.app.app_context():
+            db.session.get(User, user_id).google_sub = "google-id-123"
+            db.session.commit()
+        self.post("/auth/google")
+        self.assertIn("/dashboard", self.client.get("/auth/google/callback").location)
+        self.assertIn("/login", self.post("/account/google/disconnect", {"password": "StrongPass123"}).location)
+        self.assertEqual(self.client.get("/dashboard").status_code, 302)
+        self.client.get("/login")
+        self.assertIn("/verify-2fa", self.post("/login", {
+            "email": "student@gmail.com", "password": "StrongPass123"}).location)
+        self.assertEqual(self.client.get("/dashboard").status_code, 302)
+
+    def test_google_only_investigator_can_create_update_upload_and_verify_evidence(self):
+        user_id, _ = self.make_user(email="student@gmail.com", enabled=False)
+        with self.app.app_context():
+            db.session.get(User, user_id).google_sub = "google-id-123"
+            db.session.commit()
+        self.post("/auth/google")
+        self.assertIn("/dashboard", self.client.get("/auth/google/callback").location)
+        self.assertEqual(self.post("/cases", {"title": "Google investigator case"}).status_code, 302)
+        with self.app.app_context():
+            case_id = db.session.query(Case).filter_by(owner_id=user_id).one().id
+        self.assertEqual(self.client.get(f"/cases/{case_id}").status_code, 200)
+        self.assertEqual(self.post(f"/cases/{case_id}/update", {
+            "title": "Updated investigator case", "description": "Case details",
+            "reference_number": "GOOGLE-001", "priority": "normal", "reason": "Updated information",
+        }).status_code, 302)
+        content = b"Google investigator evidence"
+        self.assertEqual(self.post(f"/cases/{case_id}/upload", {
+            "files": [(io.BytesIO(content), "google-evidence.txt")],
+        }, content_type="multipart/form-data").status_code, 302)
+        with self.app.app_context():
+            evidence_id = db.session.query(Evidence).filter_by(case_id=case_id).one().id
+        self.assertEqual(self.post(f"/evidence/{evidence_id}/verify").status_code, 302)
+        self.assertEqual(self.client.get(f"/evidence/{evidence_id}/download").data, content)
+        self.assertEqual(self.post(f"/cases/{case_id}/status", {
+            "status": "closed", "reason": "Investigation completed",
+        }).status_code, 302)
+        with self.app.app_context():
+            self.assertEqual(db.session.get(Case, case_id).title, "Updated investigator case")
+            self.assertEqual(db.session.get(Case, case_id).status, "closed")
+            self.assertEqual(db.session.get(Evidence, evidence_id).integrity_status, "verified")
+            self.assertEqual(db.session.query(AuditLog).filter_by(
+                event_type="INTEGRITY_CHECK", user_id=user_id, evidence_id=evidence_id).count(), 1)
+            self.assertFalse(db.session.get(User, user_id).totp_enabled)
 
     def test_google_posts_require_csrf(self):
         user_id, _ = self.make_user(email="student@gmail.com")
@@ -239,6 +441,66 @@ class GoogleLoginTestCase(AppTestCase):
         with self.client.session_transaction() as session:
             self.assertNotIn("preauth_user_id", session)
             self.assertNotIn("google_flow", session)
+
+
+class GoogleAccountSelectionTestCase(AppTestCase):
+    """Build real Authlib redirects while replacing only external discovery."""
+
+    def setUp(self):
+        with patch.dict(os.environ, {
+            "GOOGLE_OAUTH_CLIENT_ID": "fake-client",
+            "GOOGLE_OAUTH_CLIENT_SECRET": "fake-secret",
+        }):
+            super().setUp()
+        self.google = self.app.extensions["evidence_google_oauth"]
+        self.metadata = patch.object(self.google, "load_server_metadata", return_value={
+            "authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth",
+        })
+        self.metadata.start()
+        self.addCleanup(self.metadata.stop)
+        self.network = patch("requests.sessions.Session.request", side_effect=AssertionError(
+            "Google account-selection tests must not access the network"))
+        self.network.start()
+        self.addCleanup(self.network.stop)
+
+    def assert_account_selection_redirect(self, response):
+        self.assertEqual(response.status_code, 302)
+        target = urlsplit(response.location)
+        self.assertEqual(target.scheme, "https")
+        self.assertEqual(target.netloc, "accounts.google.com")
+        query = parse_qs(target.query)
+        self.assertEqual(query["prompt"], ["select_account"])
+        self.assertEqual(query["client_id"], ["fake-client"])
+        self.assertEqual(query["redirect_uri"], ["http://localhost/auth/google/callback"])
+        self.assertEqual(query["response_type"], ["code"])
+        self.assertEqual(set(query["scope"][0].split()), {"openid", "email"})
+        self.assertEqual(query["code_challenge_method"], ["S256"])
+        state, nonce = query["state"][0], query["nonce"][0]
+        self.assertTrue(state)
+        self.assertTrue(nonce)
+        with self.client.session_transaction() as session:
+            authorization = session[f"_state_google_{state}"]["data"]
+            self.assertEqual(authorization["nonce"], nonce)
+            expected_challenge = base64.urlsafe_b64encode(hashlib.sha256(
+                authorization["code_verifier"].encode("ascii")).digest()).rstrip(b"=").decode("ascii")
+        self.assertEqual(query["code_challenge"], [expected_challenge])
+        return query
+
+    def test_real_oidc_client_requests_account_selection_again_after_logout(self):
+        first = self.assert_account_selection_redirect(self.post("/auth/google"))
+        user_id, _ = self.make_user()
+        self.assume_session(user_id)
+        self.post("/logout")
+        self.client.get("/login")
+        second = self.assert_account_selection_redirect(self.post("/auth/google"))
+        for parameter in ("state", "nonce", "code_challenge"):
+            self.assertNotEqual(first[parameter], second[parameter])
+
+    def test_real_oidc_client_requests_account_selection_when_linking(self):
+        user_id, _ = self.make_user(email="student@gmail.com")
+        self.assume_session(user_id)
+        self.assert_account_selection_redirect(self.post(
+            "/account/google/connect", {"password": "StrongPass123"}))
 
 
 class GoogleDisabledTestCase(AppTestCase):

@@ -55,12 +55,13 @@ def lock_transfer(transfer_id):
 
 def lock_users(*user_ids):
     """Hold account rows until commit so a concurrent revocation cannot be missed."""
+    from app import session_matches_user
+
     users = db.session.scalars(select(User).where(User.id.in_(set(user_ids))).order_by(User.id)
                                .with_for_update().execution_options(populate_existing=True)).all()
     by_id = {user.id: user for user in users}
     actor = by_id.get(g.user.id)
-    if (actor is None or not actor.is_active
-            or not actor.totp_enabled or actor.session_version != session.get("session_version")):
+    if not session_matches_user(actor):
         abort(403)
     g.user = actor
     return by_id

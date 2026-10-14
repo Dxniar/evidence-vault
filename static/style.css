@@ -226,6 +226,13 @@ body.menu-open { overflow: hidden; }
 .filter-pills a:hover { background: var(--surface-2); }
 .filter-pills a.active { color: var(--text); background: var(--surface-2); font-weight: 600; }
 .audit-panel { overflow: hidden; }
+.audit-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin: -6px 0 18px; }
+.audit-toolbar p, .audit-backup-note { color: var(--muted); font-size: 12px; line-height: 1.6; }
+.audit-toolbar p { margin: 0; }
+.audit-toolbar form, .audit-backups form { margin: 0; }
+.audit-backups { margin-top: 24px; overflow: hidden; }
+.audit-backup-note { margin: 16px 22px; }
+.audit-backups .panel-header { flex-wrap: wrap; }
 .table-wrap { overflow-x: auto; }
 .audit-table { width: 100%; border-collapse: collapse; text-align: left; }
 .audit-table th { padding: 16px 18px; border-bottom: 1px solid var(--line); color: var(--muted); background: var(--surface-2); font-size: 11px; font-weight: 500; white-space: nowrap; }

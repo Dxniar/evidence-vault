@@ -4,7 +4,7 @@ WORKDIR /srv/app
 RUN useradd --create-home --uid 10001 appuser
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY app.py models.py storage.py legacy_import.py casework.py custody.py reports.py operations.py audit_logging.py ./
+COPY app.py models.py storage.py legacy_import.py casework.py custody.py reports.py operations.py audit_logging.py audit_archive.py audit_restore.py ./
 COPY migrations ./migrations
 COPY templates ./templates
 COPY static ./static

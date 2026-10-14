@@ -20,6 +20,18 @@
     {% if q %}<a class="button button-ghost" href="{{ url_for('audit', severity=selected_severity) }}">Сбросить</a>{% endif %}
 </form>
 
+{% if g.user.role in ['admin', 'auditor'] %}
+<div class="audit-toolbar">
+    <p>Экспорт содержит все события по текущему поиску и фильтру.</p>
+    <form method="post" action="{{ url_for('audit_archive.export_csv') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="q" value="{{ q }}">
+        <input type="hidden" name="severity" value="{{ selected_severity }}">
+        <button class="button button-secondary button-small" type="submit">Экспорт CSV</button>
+    </form>
+</div>
+{% endif %}
+
 <section class="panel audit-panel">
     <div class="table-wrap">
         <table class="audit-table">
@@ -46,5 +58,45 @@
     <span>Страница {{ page }}</span>
     {% if has_next %}<a class="button button-secondary button-small" href="{{ url_for('audit', page=page + 1, severity=selected_severity, q=q) }}">Далее →</a>{% endif %}
 </nav>
+{% endif %}
+{% if g.user.role == 'admin' %}
+<section class="panel audit-backups" id="audit-backups">
+    <div class="panel-header">
+        <div><h2>Резервные копии журнала</h2></div>
+        <form method="post" action="{{ url_for('audit_archive.create_backup') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="button button-secondary button-small" type="submit">Создать копию</button>
+        </form>
+    </div>
+    <p class="audit-backup-note">Полный журнал на момент создания копии. Поиск и фильтры не применяются. Копии сохраняются в приватном хранилище; скачайте архив для отдельного хранения.</p>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Дата и время</th><th>Создал</th><th>Событий</th><th>Размер</th><th>Действия</th></tr></thead>
+            <tbody>
+            {% for backup in backups %}
+            <tr>
+                <td>{{ format_datetime(backup.created_at) }}</td>
+                <td>{{ backup.actor_name or 'Система' }}</td>
+                <td>{{ backup.metadata.record_count }}</td>
+                <td>{{ format_size(backup.metadata.size_bytes) }}</td>
+                <td><form method="post" action="{{ url_for('audit_archive.download_backup', event_id=backup.event_id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="button button-secondary button-small" type="submit">Скачать ZIP</button>
+                </form></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5"><div class="empty-state small"><h3>Резервных копий пока нет</h3><p>Создайте первую полную копию журнала.</p></div></td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% if backup_page > 1 or backups_has_next %}
+<nav class="pagination" aria-label="Страницы резервных копий">
+    {% if backup_page > 1 %}<a class="button button-secondary button-small" href="{{ url_for('audit', page=page, severity=selected_severity, q=q, backup_page=backup_page - 1, _anchor='audit-backups') }}">← Назад</a>{% endif %}
+    <span>Копии · страница {{ backup_page }}</span>
+    {% if backups_has_next %}<a class="button button-secondary button-small" href="{{ url_for('audit', page=page, severity=selected_severity, q=q, backup_page=backup_page + 1, _anchor='audit-backups') }}">Далее →</a>{% endif %}
+</nav>
+{% endif %}
 {% endif %}
 {% endblock %}

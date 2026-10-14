@@ -24,7 +24,7 @@ from joserfc.errors import JoseError
 from requests.exceptions import RequestException
 from sqlalchemy import func, or_, select, text, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy.orm import contains_eager, joinedload
+from sqlalchemy.orm import joinedload
 from werkzeug.exceptions import SecurityError
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -611,22 +611,20 @@ def create_app(test_config: dict | None = None) -> Flask:
     @app.get("/audit")
     @login_required
     def audit():
+        from audit_archive import audit_query, backup_catalog
+
         selected = request.args.get("severity", "all")
-        query = (select(AuditLog).outerjoin(User, AuditLog.user_id == User.id)
-                 .options(contains_eager(AuditLog.user)).where(audit_visibility_filter()).order_by(AuditLog.id.desc()))
+        if selected not in {"all", "info", "success", "warning", "danger"}:
+            selected = "all"
         search = request.args.get("q", "").strip()[:200]
-        if search:
-            pattern = "%" + escape_search(search) + "%"
-            query = query.where(or_(AuditLog.description.ilike(pattern, escape="\\"),
-                AuditLog.event_type.ilike(pattern, escape="\\"),
-                func.coalesce(AuditLog.actor_name, User.name).ilike(pattern, escape="\\"),
-                func.coalesce(AuditLog.actor_email, User.email).ilike(pattern, escape="\\")))
-        if selected in {"info", "success", "warning", "danger"}:
-            query = query.where(AuditLog.severity == selected)
+        query = audit_query(q=search, severity=selected).order_by(None).order_by(AuditLog.id.desc())
         page = max(1, request.args.get("page", 1, type=int))
         rows = db.session.scalars(query.limit(51).offset((page - 1) * 50)).all()
+        backup_page = min(1_000_000, max(1, request.args.get("backup_page", 1, type=int)))
+        backups = backup_catalog(limit=11, offset=(backup_page - 1) * 10) if g.user.role == "admin" else []
         return render_template("audit.html", title="Журнал безопасности", logs=rows[:50],
-                               selected_severity=selected, q=search, page=page, has_next=len(rows) > 50)
+                               selected_severity=selected, q=search, page=page, has_next=len(rows) > 50,
+                               backups=backups[:10], backup_page=backup_page, backups_has_next=len(backups) > 10)
 
     @app.get("/account")
     @login_required
@@ -908,6 +906,10 @@ def create_app(test_config: dict | None = None) -> Flask:
     register_reports(app)
     from operations import register_operations
     register_operations(app)
+    from audit_archive import register_audit_archive
+    register_audit_archive(app)
+    from audit_restore import register_restore
+    register_restore(app)
 
     return app
 
